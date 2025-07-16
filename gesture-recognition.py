@@ -1,6 +1,9 @@
 import serial
 import time
 import keyboard
+import cv2 as cv
+
+
 
 arduino = serial.Serial('COM3', 250000, timeout=0.05)
 time.sleep(2)
