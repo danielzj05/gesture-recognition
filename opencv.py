@@ -39,8 +39,8 @@ class finger:
 
 @dataclass
 class max_expected:
-    x = 0.0
-    y = 0.0
+    x: float
+    y: float
     
 def calibrate_hand(hand_landmarks):
     # find the maximum expected distance for normalization (essentially the "length" of the finger)
@@ -114,13 +114,13 @@ def detect_finger_straightness(hand_landmarks):
     return
 
 # debug
-frame_count = 0
+#frame_count = 0
 
 # main loop to capture video and process hand landmarks
 try:
     while True:
-        if frame_count >= 1: 
-            break
+        #if frame_count >= 1: 
+            #break
 
         ret, frame = cap.read() # ret = true if frame is read correctly
         frame = cv.flip(frame, 1)  # Flip the frame horizontally for a mirror effect
@@ -149,10 +149,12 @@ try:
                     mp_drawing_styles.get_default_hand_landmarks_style(),
                     mp_drawing_styles.get_default_hand_connections_style()
                 )
-                #detect_finger_straightness(hand_landmarks)
+
                 if not calibrated:  # if we haven't calibrated yet
                     calibrate_hand(hand_landmarks)  # calibrate the hand landmarks
                     calibrated = True
+
+                detect_finger_straightness(hand_landmarks)
                 
                 # just a safety thing in case we didnt get 5 fingers in the last frame
                 if arduino and len(finger_straightness) == 5:
@@ -174,10 +176,14 @@ try:
 
         cv.imshow('Camera Feed', frame)
 
+        if cv.waitKey(10) & 0xFF == ord('r'):
+            expected_max.clear()
+            calibrated = False
+
         # Check for key presses and mask key (ord()'q') to quit
         if cv.waitKey(10) & 0xFF == ord('q'):
             break
-        frame_count += 1
+        #frame_count += 1
 finally:
     cap.release()
     cv.destroyAllWindows()
