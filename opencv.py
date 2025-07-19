@@ -16,7 +16,9 @@ hand_object = mp_hands.Hands(static_image_mode=False, max_num_hands=1, min_detec
 
 fingers = []  # holds finger length values
 finger_straightness = []  # holds finger straightness values
+expected_max = []
 
+calibrated = False  # Flag to check if calibration is done
 # attempt to open the serial port; if it fails, we will just not send any data
 try:
     arduino = serial.Serial('COM3', 250000, timeout=0.05)
@@ -35,27 +37,49 @@ class finger:
     dip: any
     tip: any
 
+@dataclass
+class max_expected:
+    x = 0.0
+    y = 0.0
+    
+def calibrate_hand(hand_landmarks):
+    # find the maximum expected distance for normalization (essentially the "length" of the finger)
 
-def distance(point1, point2):
-    # distance between 2 points (for finger straightness); we dont need z cuz its depth and we're only working in 2D
-    return math.sqrt((point1.x - point2.x) ** 2 + (point1.y - point2.y) ** 2 + (point1.z - point2.z) ** 2)
+    # manually add thumb
+    thumb = max_expected(
+        x=hand_landmarks.landmark[4].x - hand_landmarks.landmark[2].x,
+        y=hand_landmarks.landmark[4].y - hand_landmarks.landmark[2].y
+    )
+    expected_max.append(thumb)
+    # Iterate through each landmark; we only need 5 to 20 for fingers and every 4th landmark corresponds to a finger
+    for i in range(5, 21, 4):
+        digit = max_expected(
+            x=hand_landmarks.landmark[i + 3].x - hand_landmarks.landmark[i].x,
+            y=hand_landmarks.landmark[i + 3].y - hand_landmarks.landmark[i].y
+        )
+        expected_max.append(digit)
+    return
 
-def straightness_ratio(finger):
-    # Calculate the lengths of the finger segments
-    mcp_to_pip = distance(finger.mcp, finger.pip)
-    pip_to_dip = distance(finger.pip, finger.dip)
-    dip_to_tip = distance(finger.dip, finger.tip)
+# probably should rename this to helper lol
+def straightness(finger, idx):
+    # attempt 2 we are gonna find the difference btwn the tip and the knuckle
+    # (tip and MCP)
+    # the decimals are too long so we are gonna clamp it to like 5 decimal places
 
-    # Calculate the total length of the finger
-    total_length = mcp_to_pip + pip_to_dip + dip_to_tip
-    actual_length = distance(finger.mcp, finger.tip)
+    # note the normalized values are between 0 and 1 AND starts from the tip (tip is always closer to 0)
+    dy = round(finger.mcp.y - finger.tip.y, 5)
+    dx = round(finger.mcp.x - finger.tip.x, 5)
+    max_val = expected_max[idx]
 
-    ''' ngl logic is kinda weird; but if you imagine a straight line from the tip of your finger to
-        your first knuckle, then imagine like, you bent your fingers, you introduce a curve where if you 
-        sum of the segments its technically longer than the straight line distance (i think anyways)
-    ''' 
-    ratio = actual_length / total_length
-    return ratio
+    # if the x distance is greater than the y distance, the hand is rotated more horizontally, 
+    # so we normalize by x, otherwise by y
+    if dx >= max_val.x:
+        normalized = dx / max_val.y
+        clamped = max(0, min(normalized, 1))
+    else:
+        normalized = dy / max_val.y
+        clamped = max(0, min(normalized, 1))
+    return clamped
 
 # find the straightness of all fingers
 def detect_finger_straightness(hand_landmarks):
@@ -83,9 +107,9 @@ def detect_finger_straightness(hand_landmarks):
         )
         fingers.append(finger_obj)
 
-    for digit in fingers:
-        straightness = int(straightness_ratio(digit)*255) # Scale to 0-255 for LED
-        finger_straightness.append(straightness)
+    for idx, digit in enumerate(fingers):
+        scale = int(straightness(digit, idx)*255) # Scale to 0-255 for LED
+        finger_straightness.append(scale)
 
     return
 
@@ -95,8 +119,8 @@ frame_count = 0
 # main loop to capture video and process hand landmarks
 try:
     while True:
-        #if frame_count >= 5: 
-            #break
+        if frame_count >= 1: 
+            break
 
         ret, frame = cap.read() # ret = true if frame is read correctly
         frame = cv.flip(frame, 1)  # Flip the frame horizontally for a mirror effect
@@ -114,7 +138,7 @@ try:
         if res.multi_hand_landmarks: # detects a list of hands in the frame
             fingers.clear()  # clear the previous finger data
             finger_straightness.clear()  # clear the previous straightness data
-
+            
             for hand_landmarks in res.multi_hand_landmarks:
                 # draw the hand landmarks and connections
                 mp_drawing.draw_landmarks(
@@ -125,14 +149,17 @@ try:
                     mp_drawing_styles.get_default_hand_landmarks_style(),
                     mp_drawing_styles.get_default_hand_connections_style()
                 )
-                detect_finger_straightness(hand_landmarks)
-
+                #detect_finger_straightness(hand_landmarks)
+                if not calibrated:  # if we haven't calibrated yet
+                    calibrate_hand(hand_landmarks)  # calibrate the hand landmarks
+                    calibrated = True
+                
                 # just a safety thing in case we didnt get 5 fingers in the last frame
                 if arduino and len(finger_straightness) == 5:
                     arduino.write(bytes(finger_straightness))
 
                 # Print the straightness values for debugging
-                for i, straightness in enumerate(finger_straightness):
+                '''for i, straightness in enumerate(finger_straightness):
                     if i == 0:
                         print(f"Thumb straightness: {straightness:.2f}")
                     elif i == 1:
@@ -142,14 +169,15 @@ try:
                     elif i == 3:
                         print(f"Ring finger straightness: {straightness:.2f}")
                     elif i == 4:
-                        print(f"Little finger straightness: {straightness:.2f}")
+                        print(f"Little finger straightness: {straightness:.2f}")'''
+                
 
         cv.imshow('Camera Feed', frame)
 
         # Check for key presses and mask key (ord()'q') to quit
         if cv.waitKey(10) & 0xFF == ord('q'):
             break
-        #frame_count += 1
+        frame_count += 1
 finally:
     cap.release()
     cv.destroyAllWindows()
