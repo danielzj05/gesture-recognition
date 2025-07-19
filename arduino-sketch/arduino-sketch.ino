@@ -11,22 +11,10 @@ void setup() {
 }
 
 void loop() {
-  if (Serial.available() > 0) {
-    char c = Serial.read();
-
-    if (c == 'U') {
-      ledVals[selectedLED] = min(255, ledVals[selectedLED] + 10);
-    } 
-    else if (c == 'D') {
-      ledVals[selectedLED] = max(0, ledVals[selectedLED] - 10);
+  if (Serial.available() >= 5) { // Wait for 5 bytes
+    for (int i = 0; i < 5; i++) {
+      ledVals[i] = Serial.read();
+      analogWrite(ledPins[i], ledVals[i]);
     }
-    else if (c >= '1' && c <= '5') {
-      selectedLED = c - '1';
-      Serial.print("Selected LED ");
-      Serial.println(selectedLED + 1);
-    }
-
-    ledVals[selectedLED] = constrain(ledVals[selectedLED], 0, 255);
-    analogWrite(ledPins[selectedLED], ledVals[selectedLED]);
   }
 }
